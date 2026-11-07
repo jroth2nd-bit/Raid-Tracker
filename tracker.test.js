@@ -81,7 +81,7 @@ test("battle plans migrate older backups and remain independent in new backups",
   old.current.shards.Ancient = { Legendary: 123 };
   old.soulInventory.mortalStones = 204;
   const migrated = T.validateState(old);
-  assert.equal(migrated.version, 9);
+  assert.equal(migrated.version, 10);
   assert.equal(migrated.battlePlans.event.battles, 0);
   assert.equal(migrated.current.shards.Ancient.Legendary, 123);
   assert.equal(migrated.soulInventory.mortalStones, 204);
@@ -101,7 +101,7 @@ test("legacy backups migrate without losing history or calculated counters", () 
   legacy.starting.Ancient.Legendary = 200;
   legacy.entries = [entry("old", "Ancient", "Rare", 2), { id: "soul", createdAt: "2026-01-01T00:00:00Z", kind: "soul", source: "Mortal", rarity: "Rare", rank: 1, quantity: 3 }];
   const migrated = T.validateState(legacy);
-  assert.equal(migrated.version, 9);
+  assert.equal(migrated.version, 10);
   assert.equal(migrated.entries.length, 2);
   assert.equal(T.calculate(migrated).counters.Ancient.Legendary.count, 202);
   assert.equal(T.calculate(migrated).souls.Mortal, 3);
@@ -207,8 +207,8 @@ test("version 5 migrates without losing plans and version 6 validates summon row
   assert.throws(() => T.validateState(state), /Missing Prism summon row/);
 });
 
-function clanRow(chests = 2, books = 0, sacred = 0, voidShards = 0, ancient = 0) {
-  return { chests, books, sacred, void: voidShards, ancient };
+function clanRow(chests = 2, books = 0, sacred = 0, voidShards = 0, ancient = 0, epicBooks = 0) {
+  return { chests, books, epicBooks, sacred, void: voidShards, ancient };
 }
 
 test("Demon Lord records validate dates, chests, counts, and unique days", () => {
@@ -235,7 +235,7 @@ test("version 6 backups migrate without losing existing data and version 7 round
   old.current.shards.Void = { Legendary: 123 };
   old.summonPlans.shard.Ancient = { pulls: 10, points: 20 };
   const state = T.validateState(old);
-  assert.equal(state.version, 9);
+  assert.equal(state.version, 10);
   assert.deepEqual(state.clanBoss, []);
   assert.equal(state.current.shards.Void.Legendary, 123);
   assert.deepEqual(state.summonPlans.shard.Ancient, { pulls: 10, points: 20 });
@@ -254,7 +254,7 @@ test("Demon Lord summaries use inclusive calendar windows, exclude missing days 
     { date: "2026-03-11", difficulties: { ultra: clanRow(2, 9) } }
   ];
   const week = T.clanSummary(records, "2026-03-10", 7);
-  assert.deepEqual(week.totals, { books: 2, sacred: 2, void: 2, ancient: 3 });
+  assert.deepEqual(week.totals, { books: 2, epicBooks: 0, sacred: 2, void: 2, ancient: 3 });
   assert.equal(week.recordedDays, 2);
   assert.equal(week.partialDays, 1);
   assert.equal(week.chests, 9);
@@ -274,6 +274,47 @@ test("Demon Lord summaries use inclusive calendar windows, exclude missing days 
   assert.throws(() => T.clanSummary(records, "2026-03-10", 8), /Invalid/);
 });
 
+test("Epic book counts migrate as unknown, validate and round trip without losing existing data", () => {
+  const old = T.emptyState();
+  old.version = 9;
+  const legacyRow = clanRow(2, 2, 1, 0, 3);
+  delete legacyRow.epicBooks;
+  old.clanBoss = [{ date: "2026-03-10", difficulties: { ultra: legacyRow } }];
+  old.current.shards.Void = { Legendary: 123 };
+  const migrated = T.validateState(old);
+  assert.equal(migrated.clanBoss[0].difficulties.ultra.epicBooks, null);
+  assert.equal(migrated.clanBoss[0].difficulties.ultra.books, 2);
+  assert.equal(migrated.current.shards.Void.Legendary, 123);
+  assert.deepEqual(T.validateState(JSON.parse(JSON.stringify(migrated))), migrated);
+  for (const value of [-1, 1.5, 1001, "1", undefined]) {
+    const invalid = structuredClone(migrated);
+    invalid.clanBoss[0].difficulties.ultra.epicBooks = value;
+    assert.throws(() => T.validateState(invalid), /whole numbers/);
+  }
+  migrated.clanBoss[0].difficulties.ultra.epicBooks = 0;
+  assert.equal(T.validateState(migrated).clanBoss[0].difficulties.ultra.epicBooks, 0);
+});
+
+test("Epic book summary counts known totals and uses only fully known days for averages", () => {
+  const records = [
+    { date: "2026-03-10", difficulties: { ultra: clanRow(2, 0, 0, 0, 0, 2), nightmare: clanRow(2, 0, 0, 0, 0, 1) } },
+    { date: "2026-03-09", difficulties: { ultra: clanRow(2, 0, 0, 0, 0, 4), nightmare: clanRow(2, 0, 0, 0, 0, null) } },
+    { date: "2026-03-08", difficulties: { ultra: clanRow(2, 0, 0, 0, 0, 0) } },
+    { date: "2026-03-03", difficulties: { ultra: clanRow(2, 0, 0, 0, 0, 99) } }
+  ];
+  const all = T.clanSummary(records, "2026-03-10", 7);
+  assert.equal(all.totals.epicBooks, 7);
+  assert.equal(all.epicKnownRows, 4);
+  assert.equal(all.epicRecordedDays, 2);
+  assert.deepEqual(all.averages.epicBooks, { day: 1.5, week: 10.5, month: 45 });
+  const ultra = T.clanSummary(records, "2026-03-10", 7, "ultra");
+  assert.equal(ultra.epicRecordedDays, 3);
+  assert.equal(ultra.averages.epicBooks.day, 2);
+  const unknown = T.clanSummary([{ date: "2026-03-10", difficulties: { ultra: clanRow(2, 0, 0, 0, 0, null) } }], "2026-03-10", 7);
+  assert.equal(unknown.epicKnownRows, 0);
+  assert.equal(unknown.averages.epicBooks, null);
+});
+
 test("champion completion uses six equal fields and only blessing level six", () => {
   const statuses = { blessing: 0, books: "complete", masteries: "needed", gear: "progress", glyphs: "complete", relic: "needed" };
   assert.deepEqual(T.buildCompletion(statuses), { complete: 2, applicable: 6, percentage: 2 / 6 * 100 });
@@ -291,7 +332,7 @@ test("champion builds migrate version 7, validate and round trip alongside exist
   old.clanBoss = [{ date: "2026-03-01", difficulties: { ultra: clanRow(2, 1) } }];
   old.current.shards.Void = { Legendary: 123 };
   const state = T.validateState(old);
-  assert.equal(state.version, 9);
+  assert.equal(state.version, 10);
   assert.deepEqual(state.champions, []);
   assert.equal(state.clanBoss[0].difficulties.ultra.books, 1);
   assert.equal(state.current.shards.Void.Legendary, 123);

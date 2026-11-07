@@ -11,7 +11,9 @@ function renderClan() {
   const metrics = Object.entries(T.clanRewards).map(([key, label]) => {
     const total = summary.totals[key];
     const average = summary.averages[key];
-    return `<div class="clan-metric"><span>${label}</span><strong>${format(total)}</strong><small>${average === null ? "No recorded days" : `${format(average.day)} / day · ${format(average.week)} / 7 days · ${format(average.month)} / 30 days`}</small></div>`;
+    const coverage = key === "epicBooks" ? `<small>Known total · ${summary.epicRecordedDays} of ${summary.recordedDays} days have complete Epic book data</small>` : "";
+    const display = key === "epicBooks" && !summary.epicKnownRows ? "—" : format(total);
+    return `<div class="clan-metric"><span>${label}</span><strong>${display}</strong><small>${average === null ? "No recorded days" : `${format(average.day)} / day · ${format(average.week)} / 7 days · ${format(average.month)} / 30 days`}</small>${coverage}</div>`;
   }).join("");
   const incomplete = summary.partialDays ? ` · ${summary.partialDays} incomplete ${summary.partialDays === 1 ? "day" : "days"} included` : "";
   $("clan-summary").innerHTML = `<p class="clan-count">${summary.recordedDays} recorded ${summary.recordedDays === 1 ? "day" : "days"} · ${summary.chests} chests${incomplete}</p><div class="clan-metrics">${metrics}</div>`;
@@ -19,7 +21,7 @@ function renderClan() {
   $("clan-history").innerHTML = records.length ? records.map(record => {
     const rows = Object.entries(record.difficulties);
     const partial = rows.length !== 4 || rows.some(([, row]) => row.chests !== 2);
-    const details = rows.map(([key, row]) => `${T.clanDifficulties[key]} (${row.chests} ${row.chests === 1 ? "chest" : "chests"}): ${row.books} books, ${row.sacred} sacred, ${row.void} void, ${row.ancient} ancient`).join(" · ");
+    const details = rows.map(([key, row]) => `${T.clanDifficulties[key]} (${row.chests} ${row.chests === 1 ? "chest" : "chests"}): ${row.books} legendary books, ${row.epicBooks === null ? "unknown" : row.epicBooks} epic books, ${row.sacred} sacred, ${row.void} void, ${row.ancient} ancient`).join(" · ");
     return `<div class="clan-history-row"><div><strong>${record.date}${partial ? " · Incomplete" : ""}</strong><p>${details}</p></div><div class="clan-history-actions"><button type="button" class="button button-quiet" data-clan-edit="${record.date}">Edit</button><button type="button" class="button button-quiet" data-clan-delete="${record.date}">Delete</button></div></div>`;
   }).join("") : '<p class="section-copy">No reward days recorded yet.</p>';
 }
@@ -32,10 +34,11 @@ function populateClanForm() {
     : "Two chests per difficulty are preselected; check your actual rewards before saving.";
   $("clan-form-error").textContent = "";
   $("clan-rows").innerHTML = Object.entries(T.clanDifficulties).map(([key, name]) => {
-    const row = record ? record.difficulties[key] : { chests: 2, books: 0, sacred: 0, void: 0, ancient: 0 };
+    const row = record ? record.difficulties[key] : { chests: 2, books: 0, epicBooks: 0, sacred: 0, void: 0, ancient: 0 };
     const fields = ["chests", ...Object.keys(T.clanRewards)].map(field => {
       const label = field === "chests" ? "chests" : T.clanRewards[field];
-      return `<td><input type="number" data-clan-field="${field}" aria-label="${name} ${label}" min="${field === "chests" ? 1 : 0}" max="${field === "chests" ? 2 : 1000}" step="1" value="${row ? row[field] : field === "chests" ? 2 : 0}" required${row ? "" : " disabled"}></td>`;
+      const value = row ? row[field] : field === "chests" ? 2 : 0;
+      return `<td><input type="number" data-clan-field="${field}" aria-label="${name} ${label}" min="${field === "chests" ? 1 : 0}" max="${field === "chests" ? 2 : 1000}" step="1" value="${value === null ? "" : value}"${field === "epicBooks" ? ' placeholder="Unknown"' : " required"}${row ? "" : " disabled"}></td>`;
     }).join("");
     return `<tr data-clan-row="${key}"><td><input type="checkbox" data-clan-include aria-label="Record ${name}"${row ? " checked" : ""}></td><th scope="row">${name}</th>${fields}</tr>`;
   }).join("");
@@ -66,7 +69,7 @@ $("clan-form").addEventListener("submit", event => {
     const difficulties = {};
     for (const row of $("clan-rows").querySelectorAll("[data-clan-row]")) {
       if (!row.querySelector("[data-clan-include]").checked) continue;
-      difficulties[row.dataset.clanRow] = Object.fromEntries([...row.querySelectorAll("[data-clan-field]")].map(input => [input.dataset.clanField, Number(input.value)]));
+      difficulties[row.dataset.clanRow] = Object.fromEntries([...row.querySelectorAll("[data-clan-field]")].map(input => [input.dataset.clanField, input.dataset.clanField === "epicBooks" && input.value === "" ? null : Number(input.value)]));
     }
     const record = T.validateClanRecord({ date, difficulties });
     const clanBoss = state.clanBoss.filter(item => item.date !== date);

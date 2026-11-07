@@ -28,7 +28,7 @@
     soul: ["Mortal", "Immortal", "Eternal", "Prism"]
   };
   const clanDifficulties = { ultra: "Ultra-Nightmare", nightmare: "Nightmare", brutal: "Brutal", hard: "Hard" };
-  const clanRewards = { books: "Legendary books", sacred: "Sacred shards", void: "Void shards", ancient: "Ancient shards" };
+  const clanRewards = { books: "Legendary books", epicBooks: "Epic books", sacred: "Sacred shards", void: "Void shards", ancient: "Ancient shards" };
   const buildFields = { blessing: "Blessing", books: "Books", masteries: "Masteries", gear: "Gear", glyphs: "Glyphs", relic: "Relic" };
   const buildStatuses = ["needed", "progress", "complete"];
   const legacyBuildStatuses = ["unset", "complete", "needed", "na"];
@@ -41,11 +41,11 @@
     }
     const emptyBattle = () => ({ points: 0, battles: 0, energy: 0, minutes: 0, seconds: 0 });
     const summonPlans = Object.fromEntries(Object.entries(summonTypes).map(([kind, types]) => [kind, Object.fromEntries(types.map(type => [type, { pulls: 0, points: 0 }]))]));
-    return { version: 9, starting, entries: [], current: { shards: {}, souls: {} }, soulInventory: { mortalStones: 0, mortalCoins: 0, immortalStones: 0, immortalCoins: 0, eternalStones: 0, eternalCoins: 0 }, battlePlans: { event: emptyBattle(), tournament: emptyBattle() }, summonPlans, clanBoss: [], champions: [] };
+    return { version: 10, starting, entries: [], current: { shards: {}, souls: {} }, soulInventory: { mortalStones: 0, mortalCoins: 0, immortalStones: 0, immortalCoins: 0, eternalStones: 0, eternalCoins: 0 }, battlePlans: { event: emptyBattle(), tournament: emptyBattle() }, summonPlans, clanBoss: [], champions: [] };
   }
 
   function validateState(data) {
-    if (!data || typeof data !== "object" || ![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(data.version) || !data.starting || !Array.isArray(data.entries)) throw new Error("Not a valid Mercy Ledger backup (version 1 through 9 required).");
+    if (!data || typeof data !== "object" || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(data.version) || !data.starting || !Array.isArray(data.entries)) throw new Error("Not a valid Mercy Ledger backup (version 1 through 10 required).");
     const clean = emptyState();
     for (const [source, rarities] of Object.entries(rules)) {
       if (source === "Remnant" && data.version < 4) continue;
@@ -120,7 +120,7 @@
       if (!Array.isArray(data.clanBoss)) throw new Error("Missing Demon Lord records.");
       const dates = new Set();
       clean.clanBoss = data.clanBoss.map(record => {
-        const valid = validateClanRecord(record);
+        const valid = validateClanRecord(record, data.version < 10);
         if (dates.has(valid.date)) throw new Error("Duplicate Demon Lord reward date.");
         dates.add(valid.date);
         return valid;
@@ -178,15 +178,20 @@
     return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === date;
   }
 
-  function validateClanRecord(record) {
+  function validateClanRecord(record, legacy = false) {
     if (!record || !validCalendarDate(record.date) || !record.difficulties || typeof record.difficulties !== "object" || Array.isArray(record.difficulties)) throw new Error("Invalid Demon Lord record.");
     const difficulties = {};
     for (const [difficulty, row] of Object.entries(record.difficulties)) {
       if (!Object.hasOwn(clanDifficulties, difficulty) || !row || typeof row !== "object" || !Number.isSafeInteger(row.chests) || row.chests < 1 || row.chests > 2) throw new Error("Each recorded difficulty needs 1 or 2 claimed chests.");
       const clean = { chests: row.chests };
       for (const reward of Object.keys(clanRewards)) {
-        if (!Number.isSafeInteger(row[reward]) || row[reward] < 0 || row[reward] > 1000) throw new Error("Demon Lord reward counts must be whole numbers from 0 to 1,000.");
-        clean[reward] = row[reward];
+        const value = reward === "epicBooks" && legacy ? null : row[reward];
+        if (reward === "epicBooks" && value === null) {
+          clean[reward] = null;
+          continue;
+        }
+        if (!Number.isSafeInteger(value) || value < 0 || value > 1000) throw new Error("Demon Lord reward counts must be whole numbers from 0 to 1,000.");
+        clean[reward] = value;
       }
       difficulties[difficulty] = clean;
     }
@@ -200,6 +205,7 @@
     const start = days ? end - (days - 1) * 86400000 : -Infinity;
     const totals = Object.fromEntries(Object.keys(clanRewards).map(key => [key, 0]));
     let recordedDays = 0, partialDays = 0, chests = 0;
+    let epicRecordedDays = 0, epicAverageTotal = 0, epicKnownRows = 0;
     for (const record of records) {
       const timestamp = Date.parse(`${record.date}T00:00:00Z`);
       if (timestamp < start || timestamp > end) continue;
@@ -208,16 +214,22 @@
       recordedDays++;
       if (difficulty === "all" && (rows.length !== 4 || rows.some(row => row.chests !== 2))) partialDays++;
       if (difficulty !== "all" && rows[0].chests !== 2) partialDays++;
+      if (rows.every(row => row.epicBooks !== null)) {
+        epicRecordedDays++;
+        epicAverageTotal += rows.reduce((sum, row) => sum + row.epicBooks, 0);
+      }
       for (const row of rows) {
         chests += row.chests;
-        for (const key of Object.keys(totals)) totals[key] += row[key];
+        if (row.epicBooks !== null) epicKnownRows++;
+        for (const key of Object.keys(totals)) if (row[key] !== null) totals[key] += row[key];
       }
     }
     const averages = Object.fromEntries(Object.entries(totals).map(([key, total]) => {
-      const day = recordedDays ? total / recordedDays : null;
+      const count = key === "epicBooks" ? epicRecordedDays : recordedDays;
+      const day = count ? (key === "epicBooks" ? epicAverageTotal : total) / count : null;
       return [key, day === null ? null : { day, week: day * 7, month: day * 30 }];
     }));
-    return { totals, averages, recordedDays, partialDays, chests };
+    return { totals, averages, recordedDays, epicRecordedDays, epicKnownRows, partialDays, chests };
   }
 
   function calculate(state) {

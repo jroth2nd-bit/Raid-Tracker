@@ -78,7 +78,7 @@ footer { border-top: 1px solid #25392c; margin-top: 20px; padding: 14px 0; displ
 .clan-filters label { flex: 0 1 200px; margin: 0; }
 .clan-filters select { margin-top: 5px; border-color: #39777a; }
 .clan-count { color: #a7e5e4; font-size: 11px; margin: 12px 0 7px; }
-.clan-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.clan-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .clan-metric { min-width: 0; background: #0c1919; border: 1px solid #285456; border-radius: 5px; padding: 10px; }
 .clan-metric span, .clan-metric strong, .clan-metric small { display: block; }
 .clan-metric span { color: #c5e0dc; font-size: 11px; }
@@ -96,7 +96,7 @@ footer { border-top: 1px solid #25392c; margin-top: 20px; padding: 14px 0; displ
 .clan-dialog-header { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 10px; }
 .clan-date { max-width: 200px; margin: 14px 0; }
 .clan-table-wrap { overflow-x: auto; }
-.clan-table { width: 100%; min-width: 680px; border-collapse: collapse; font-size: 11px; }
+.clan-table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 11px; }
 .clan-table th, .clan-table td { text-align: left; padding: 5px; border-bottom: 1px solid #285456; }
 .clan-table thead th { color: #b0d7d1; font-size: 10px; }
 .clan-table input[type=number] { width: 78px; }
